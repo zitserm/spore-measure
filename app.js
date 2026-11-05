@@ -1,7 +1,7 @@
 (() => {
   const MAX_SPORES = 20;
   // µm per ruler unit at each magnification, as read from the user's calibrated ruler.
-  const MICRONS_PER_UNIT = { '400': 2.5, '1000': 1.0 };
+  const MICRONS_PER_UNIT = { '100': 10, '400': 2.5, '1000': 1.0 };
   const SPORE_STEPS = [
     'tap one end of its length',
     'tap the other end of its length',
