@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Spore Measure</title>
+  <meta name="description" content="Measure fungal spores from a microscope photo: length, width and Q ratio, calibrated with a ruler.">
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#1c3d2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Spore Measure">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Spore Measure</h1>
+    <p class="sub">Calibrated from your microscope ruler. Measure 10 to 20 spores.</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Microscope photo</h2>
+      <div class="row buttons">
+        <label class="btn primary" for="camera">Take photo</label>
+        <label class="btn" for="library">Choose photo</label>
+        <input id="camera" class="visually-hidden" type="file" accept="image/*" capture="environment">
+        <input id="library" class="visually-hidden" type="file" accept="image/*">
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. Calibration</h2>
+      <label class="field">
+        <span>Magnification</span>
+        <select id="mag">
+          <option value="200">200x (enter µm per unit)</option>
+          <option value="400" selected>400x (2.5 µm per unit)</option>
+          <option value="1000">1000x (1 µm per unit)</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>µm per ruler unit</span>
+        <input id="umPerUnit" type="number" inputmode="decimal" min="0.01" step="0.01" value="2.5">
+      </label>
+      <label class="field">
+        <span>Ruler units between your two calibration taps</span>
+        <input id="unitsSpan" type="number" inputmode="decimal" min="1" step="1" value="10">
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>3. Mark points</h2>
+      <p id="step" class="step" aria-live="polite">Take or choose a photo to begin.</p>
+      <div class="stage">
+        <canvas id="view" aria-label="Photo. Tap to place points. Pinch to zoom, drag to move."></canvas>
+        <p class="empty hidden" id="empty">No photo yet</p>
+      </div>
+      <p class="hint">Pinch to zoom and drag to move. Tap to place a point. Tap the ruler first, then each spore: its length, then its width.</p>
+      <div class="row buttons">
+        <button class="btn" id="undo" type="button">Undo</button>
+        <button class="btn" id="fit" type="button">Fit photo</button>
+        <button class="btn danger" id="clear" type="button">Clear points</button>
+      </div>
+    </section>
+
+    <section class="card results" aria-live="polite">
+      <h2>Results</h2>
+      <dl>
+        <dt>Spores measured</dt>
+        <dd id="count">–</dd>
+        <dt>Average length</dt>
+        <dd id="avgLen">–</dd>
+        <dt>Average width</dt>
+        <dd id="avgWidth">–</dd>
+        <dt>Average Q (length ÷ width)</dt>
+        <dd id="avgQ">–</dd>
+      </dl>
+      <div class="table-wrap" id="spores"></div>
+      <div class="row buttons">
+        <button class="btn" id="copy" type="button">Copy table</button>
+        <span class="hint" id="copyStatus"></span>
+      </div>
+    </section>
+
+    <section class="card tips">
+      <h2>Tips</h2>
+      <ul>
+        <li>Each measurement is in micrometres (µm). Q is the length divided by the width for each spore, and the average Q is the mean of those ratios.</li>
+        <li>Tap the two edges of the spore across its longest axis for length, and across its widest part for width.</li>
+        <li>Calibration uses the two ruler taps and the number of units between them, so tap two marks you can count.</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
