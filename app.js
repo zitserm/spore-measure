@@ -1,32 +1,31 @@
 (() => {
-  const MAX_SPORES = 20;
-  // µm per ruler unit at each magnification, as read from the user's calibrated ruler.
-  const MICRONS_PER_UNIT = { '100': 10, '400': 2.5, '1000': 1.0 };
-  const SPORE_STEPS = [
-    'tap one end of its length',
-    'tap the other end of its length',
-    'tap one edge of its width',
-    'tap the opposite edge of its width',
-  ];
+  // µm per tick at each magnification, from the user's stage micrometer.
+  const MICRONS_PER_TICK = { '100': 10, '400': 2.5, '1000': 1.0 };
 
   const $ = (id) => document.getElementById(id);
   const canvas = $('view');
   const ctx = canvas.getContext('2d');
   const magSelect = $('mag');
-  const umInput = $('umPerUnit');
-  const unitsInput = $('unitsSpan');
+  const umInput = $('umPerTick');
+  const ticksInput = $('ticks');
 
-  // points: image-pixel coordinates in tap order.
-  // Points 0-1 are the two ruler taps. After that, every spore takes four points:
-  // its length (two ends), then its width (two edges).
+  // ruler: two taps in full-resolution photo pixels.
+  // spores: results from the server, each with a contour in full-resolution pixels.
+  // excluded: ids of spores the user has tapped out.
   const state = {
     img: null,
-    points: [],
+    photoFile: null,
+    ruler: [],
+    spores: [],
+    excluded: new Set(),
+    tips: [],
+    tipMode: false,
     view: { s: 1, x: 0, y: 0 },
     fitScale: 1,
     pointers: new Map(),
     tap: null,
     pinch: null,
+    busy: false,
   };
 
   // ---------- helpers ----------
@@ -34,7 +33,6 @@
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const mean = (xs) => xs.reduce((sum, x) => sum + x, 0) / xs.length;
-  // Sample standard deviation; needs at least two values.
   const sd = (xs) => {
     if (xs.length < 2) return null;
     const m = mean(xs);
@@ -47,37 +45,18 @@
     return `${mean(xs).toFixed(digits)}${unit}${sdText}`;
   };
 
-  function micronsPerUnit() {
+  function micronsPerTick() {
     const v = parseFloat(umInput.value);
     return v > 0 ? v : null;
   }
 
-  function unitsSpan() {
-    const v = parseFloat(unitsInput.value);
+  function ticksBetween() {
+    const v = parseFloat(ticksInput.value);
     return v > 0 ? v : null;
   }
 
-  // Micrometres per photo pixel, or null until the ruler is calibrated.
-  function scale() {
-    const p = state.points;
-    const um = micronsPerUnit();
-    const units = unitsSpan();
-    if (p.length < 2 || !um || !units) return null;
-    return (units * um) / dist(p[0], p[1]);
-  }
-
-  // Completed spores as { length, width, q } in micrometres.
-  function spores() {
-    const s = scale();
-    const out = [];
-    if (!s) return out;
-    const p = state.points;
-    for (let i = 2; i + 3 < p.length; i += 4) {
-      const length = dist(p[i], p[i + 1]) * s;
-      const width = dist(p[i + 2], p[i + 3]) * s;
-      out.push({ length, width, q: length / width });
-    }
-    return out;
+  function includedSpores() {
+    return state.spores.filter((s) => !state.excluded.has(s.id));
   }
 
   // ---------- layout and drawing ----------
@@ -111,33 +90,60 @@
     return { x: p.x * state.view.s + state.view.x, y: p.y * state.view.s + state.view.y };
   }
 
-  function drawLine(a, b, color, label) {
-    const A = toScreen(a);
-    const B = toScreen(b);
+  function contourPath(contour) {
+    const path = new Path2D();
+    contour.forEach(([x, y], i) => {
+      const p = toScreen({ x, y });
+      if (i === 0) path.moveTo(p.x, p.y);
+      else path.lineTo(p.x, p.y);
+    });
+    path.closePath();
+    return path;
+  }
+
+  function drawRuler() {
+    const r = state.ruler;
+    if (r.length === 0) return;
+    const A = toScreen(r[0]);
+    const B = r.length > 1 ? toScreen(r[1]) : null;
+    ctx.strokeStyle = '#ffb020';
     ctx.lineWidth = 2;
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(A.x, A.y);
-    ctx.lineTo(B.x, B.y);
-    ctx.stroke();
-    for (const P of [A, B]) {
+    if (B) {
       ctx.beginPath();
-      ctx.arc(P.x, P.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = color;
+      ctx.moveTo(A.x, A.y);
+      ctx.lineTo(B.x, B.y);
+      ctx.stroke();
+    }
+    for (const P of B ? [A, B] : [A]) {
+      ctx.beginPath();
+      ctx.arc(P.x, P.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffb020';
       ctx.fill();
     }
-    if (label) {
-      const mx = (A.x + B.x) / 2;
-      const my = (A.y + B.y) / 2;
-      ctx.font = '600 14px -apple-system, Helvetica, Arial, sans-serif';
-      const tw = ctx.measureText(label).width + 12;
+  }
+
+  function drawSpores() {
+    state.spores.forEach((spore) => {
+      const out = state.excluded.has(spore.id);
+      const color = out ? '#888' : (spore.flag ? '#ff5a5a' : '#38d46a');
+      const path = contourPath(spore.contour);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.setLineDash(out ? [6, 4] : []);
+      ctx.stroke(path);
+      ctx.setLineDash([]);
+      // Number label at the first contour point.
+      const p = toScreen({ x: spore.contour[0][0], y: spore.contour[0][1] });
+      ctx.font = '600 13px -apple-system, Helvetica, Arial, sans-serif';
+      const text = String(spore.id);
+      const tw = ctx.measureText(text).width + 8;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(mx - tw / 2, my - 22, tw, 20);
-      ctx.fillStyle = '#fff';
+      ctx.fillRect(p.x - tw / 2, p.y - 20, tw, 18);
+      ctx.fillStyle = out ? '#bbb' : '#fff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(label, mx, my - 12);
-    }
+      ctx.fillText(text, p.x, p.y - 11);
+    });
   }
 
   function draw() {
@@ -149,42 +155,57 @@
 
     const v = state.view;
     ctx.drawImage(state.img, v.x, v.y, state.img.width * v.s, state.img.height * v.s);
-
-    const p = state.points;
-    if (p.length >= 2) drawLine(p[0], p[1], '#ffb020', 'ruler');
-    for (let i = 2, n = 1; i < p.length; i += 4, n++) {
-      if (i + 1 < p.length) drawLine(p[i], p[i + 1], '#3a9cff', String(n));
-      if (i + 3 < p.length) drawLine(p[i + 2], p[i + 3], '#38d46a', null);
-    }
-
-    // A point waiting for its partner is shown as a white dot.
-    if (p.length % 2 === 1) {
-      const last = toScreen(p[p.length - 1]);
+    drawRuler();
+    drawSpores();
+    // Mark each apical tip the user added, so its position can be checked.
+    for (const tip of state.tips) {
+      const p = toScreen(tip);
       ctx.beginPath();
-      ctx.arc(last.x, last.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#fff';
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff3b30';
       ctx.fill();
     }
   }
 
+  function stepText() {
+    if (!state.img) return 'Take or choose a photo to begin.';
+    if (!micronsPerTick()) return 'Enter the µm per tick for your magnification.';
+    if (state.ruler.length < 2) {
+      return state.ruler.length === 0
+        ? 'Step 3: tap the first ruler tick.'
+        : 'Step 3: tap the second ruler tick.';
+    }
+    if (!ticksBetween()) return 'Enter how many ticks lie between your two taps.';
+    if (!state.spores.length) return 'Step 4: tap Measure spores.';
+    if (state.tipMode) return 'Tap the tip of a spore to add it to that spore\'s outline.';
+    return 'Tap a numbered outline to leave that spore out.';
+  }
+
   // ---------- results ----------
 
-  function renderTable(list) {
+  function renderTable() {
     const wrap = $('spores');
     wrap.replaceChildren();
+    const list = includedSpores();
     if (!list.length) return;
 
     const table = document.createElement('table');
     const head = table.createTHead().insertRow();
-    for (const label of ['Spore', 'Length (µm)', 'Width (µm)', 'Q']) {
+    for (const label of ['Spore', 'Length (µm)', 'Width (µm)', 'Q', 'Note']) {
       const th = document.createElement('th');
       th.textContent = label;
       head.appendChild(th);
     }
     const body = table.createTBody();
-    list.forEach((s, i) => {
+    list.forEach((s) => {
       const row = body.insertRow();
-      for (const text of [String(i + 1), s.length.toFixed(1), s.width.toFixed(1), s.q.toFixed(2)]) {
+      for (const text of [
+        String(s.id),
+        s.length.toFixed(1),
+        s.width.toFixed(1),
+        s.q === null ? '–' : s.q.toFixed(2),
+        s.flag || '',
+      ]) {
         row.insertCell().textContent = text;
       }
     });
@@ -195,6 +216,7 @@
       mean(list.map((s) => s.length)).toFixed(1),
       mean(list.map((s) => s.width)).toFixed(1),
       mean(list.map((s) => s.q)).toFixed(2),
+      '',
     ]) {
       avg.insertCell().textContent = text;
     }
@@ -202,35 +224,22 @@
   }
 
   function updateResults() {
-    const list = spores();
-    $('count').textContent = `${list.length} of ${MAX_SPORES}`;
+    const list = includedSpores();
+    $('count').textContent = `${list.length} of ${state.spores.length}`;
     $('avgLen').textContent = list.length ? fmtStat(list.map((s) => s.length), 1, ' µm') : '–';
     $('avgWidth').textContent = list.length ? fmtStat(list.map((s) => s.width), 1, ' µm') : '–';
     $('avgQ').textContent = list.length ? fmtStat(list.map((s) => s.q), 2, '') : '–';
-    renderTable(list);
-  }
-
-  function stepText() {
-    const n = state.points.length;
-    if (!state.img) return 'Take or choose a photo to begin.';
-    if (!micronsPerUnit()) return 'Enter the µm per ruler unit for your magnification.';
-    if (!unitsSpan()) return 'Enter how many ruler units your two calibration taps span.';
-    if (n < 2) return 'Step 1: tap two ruler marks, then type how many units apart they are.';
-    const spore = Math.floor((n - 2) / 4) + 1;
-    if (spore > MAX_SPORES) return `Done: ${MAX_SPORES} spores measured. Copy the table or start over.`;
-    return `Spore ${spore} of ${MAX_SPORES}: ${SPORE_STEPS[(n - 2) % 4]}.`;
-  }
-
-  function updateText() {
-    $('step').textContent = stepText();
-    $('undo').disabled = state.points.length === 0;
-    $('clear').disabled = state.points.length === 0;
-    $('copyStatus').textContent = '';
+    renderTable();
   }
 
   function update() {
     draw();
-    updateText();
+    $('step').textContent = stepText();
+    $('undo').disabled = state.ruler.length === 0 || state.busy;
+    $('measure').disabled = state.busy || !state.img || state.ruler.length < 2 || !ticksBetween() || !micronsPerTick();
+    $('measure').textContent = state.busy ? 'Measuring…' : 'Measure spores';
+    $('tipMode').disabled = state.busy || !state.spores.length;
+    $('clearTips').disabled = state.busy || !state.tips.length;
     updateResults();
   }
 
@@ -243,7 +252,12 @@
     img.onload = () => {
       URL.revokeObjectURL(url);
       state.img = img;
-      state.points = [];
+      state.photoFile = file;
+      state.ruler = [];
+      state.spores = [];
+      state.excluded = new Set();
+      state.tips = [];
+      $('measureStatus').textContent = '';
       fitPhoto();
       update();
     };
@@ -260,26 +274,76 @@
   // ---------- calibration inputs ----------
 
   magSelect.addEventListener('change', () => {
-    if (MICRONS_PER_UNIT[magSelect.value]) umInput.value = MICRONS_PER_UNIT[magSelect.value];
+    if (MICRONS_PER_TICK[magSelect.value]) umInput.value = MICRONS_PER_TICK[magSelect.value];
     update();
   });
   umInput.addEventListener('input', update);
-  unitsInput.addEventListener('input', update);
+  ticksInput.addEventListener('input', update);
 
   // ---------- buttons ----------
 
-  $('undo').addEventListener('click', () => { state.points.pop(); update(); });
-  $('clear').addEventListener('click', () => { state.points = []; update(); });
+  $('undo').addEventListener('click', () => {
+    state.ruler.pop();
+    state.spores = [];
+    state.excluded = new Set();
+    $('measureStatus').textContent = '';
+    update();
+  });
   $('fit').addEventListener('click', () => { resetTouch(); fitPhoto(); });
 
+  async function measure() {
+    if (!state.photoFile || state.ruler.length < 2) return;
+    state.busy = true;
+    $('measureStatus').textContent = 'Finding and measuring spores. This can take several seconds.';
+    update();
+    const form = new FormData();
+    form.append('image', state.photoFile, state.photoFile.name || 'photo.jpg');
+    form.append('ruler', JSON.stringify(state.ruler.map((p) => [p.x, p.y])));
+    form.append('ticks', String(ticksBetween()));
+    form.append('um_per_tick', String(micronsPerTick()));
+    form.append('tips', JSON.stringify(state.tips.map((p) => [p.x, p.y])));
+    try {
+      const res = await fetch('/measure', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+      state.spores = data.spores;
+      const ignored = state.tips.length - (data.tips_used ? data.tips_used.length : 0);
+      let text = data.spores.length
+        ? `Found ${data.spores.length} spores.`
+        : 'No spores found. Try a sharper photo, or check the ruler taps.';
+      if (ignored > 0) text += ` ${ignored} tip${ignored === 1 ? ' was' : 's were'} too far from a spore and ignored. Clear tips and tap closer.`;
+      $('measureStatus').textContent = text;
+    } catch (err) {
+      $('measureStatus').textContent = `Could not measure: ${err.message}. Is the Mac server running?`;
+    } finally {
+      state.busy = false;
+      update();
+    }
+  }
+
+  $('measure').addEventListener('click', measure);
+
+  $('tipMode').addEventListener('click', () => {
+    state.tipMode = !state.tipMode;
+    $('tipMode').textContent = `Add apical tip: ${state.tipMode ? 'on' : 'off'}`;
+    $('tipMode').setAttribute('aria-pressed', String(state.tipMode));
+    update();
+  });
+
+  $('clearTips').addEventListener('click', () => {
+    state.tips = [];
+    if (state.spores.length) measure();
+    else update();
+  });
+
   $('copy').addEventListener('click', async () => {
-    const list = spores();
+    const list = includedSpores();
     if (!list.length) {
       $('copyStatus').textContent = 'No spores to copy yet.';
       return;
     }
     const lines = ['Spore\tLength (µm)\tWidth (µm)\tQ'];
-    list.forEach((s, i) => lines.push(`${i + 1}\t${s.length.toFixed(1)}\t${s.width.toFixed(1)}\t${s.q.toFixed(2)}`));
+    list.forEach((s) => lines.push(`${s.id}\t${s.length.toFixed(1)}\t${s.width.toFixed(1)}\t${s.q === null ? '' : s.q.toFixed(2)}`));
     lines.push(`Average\t${mean(list.map((s) => s.length)).toFixed(1)}\t${mean(list.map((s) => s.width)).toFixed(1)}\t${mean(list.map((s) => s.q)).toFixed(2)}`);
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
@@ -289,9 +353,8 @@
     }
   });
 
-  // ---------- touch: tap to place, drag and pinch to move/zoom ----------
+  // ---------- touch: tap to place or toggle, drag and pinch to move/zoom ----------
 
-  // Forget every finger we are tracking, so a missed lift can't skew the next pinch.
   function resetTouch() {
     state.pointers.clear();
     state.pinch = null;
@@ -303,16 +366,41 @@
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
-  function addPointAt(screenPos) {
-    if (state.points.length >= 2 + 4 * MAX_SPORES) return;
+  // Ray-casting point-in-polygon test, in photo pixel coordinates.
+  function insideContour(contour, x, y) {
+    let inside = false;
+    for (let i = 0, j = contour.length - 1; i < contour.length; j = i++) {
+      const [xi, yi] = contour[i];
+      const [xj, yj] = contour[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  // A tap either toggles a spore outline (after measuring) or places a ruler tap.
+  function handleTap(screenPos) {
+    if (!state.img || state.busy) return;
     const v = state.view;
-    const img = {
-      x: (screenPos.x - v.x) / v.s,
-      y: (screenPos.y - v.y) / v.s,
-    };
-    // Ignore taps outside the photo.
+    const img = { x: (screenPos.x - v.x) / v.s, y: (screenPos.y - v.y) / v.s };
+    if (state.spores.length && state.tipMode) {
+      state.tips.push(img);
+      measure();
+      return;
+    }
+    if (state.spores.length) {
+      for (const spore of state.spores) {
+        if (insideContour(spore.contour, img.x, img.y)) {
+          if (state.excluded.has(spore.id)) state.excluded.delete(spore.id);
+          else state.excluded.add(spore.id);
+          update();
+          return;
+        }
+      }
+      return;
+    }
+    if (state.ruler.length >= 2) return;
     if (img.x < 0 || img.y < 0 || img.x > state.img.width || img.y > state.img.height) return;
-    state.points.push(img);
+    state.ruler.push(img);
     update();
   }
 
@@ -351,7 +439,6 @@
       const d = dist(a, b);
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       const v = state.view;
-      // Keep the photo point under the previous midpoint anchored under the new one.
       const ax = (state.pinch.mid.x - v.x) / v.s;
       const ay = (state.pinch.mid.y - v.y) / v.s;
       const s = clamp(v.s * (d / state.pinch.dist), state.fitScale, state.fitScale * 10);
@@ -367,11 +454,10 @@
     const wasSingle = state.pointers.size === 1;
     state.pointers.delete(e.pointerId);
     if (wasSingle && state.tap && !state.tap.moved && !state.tap.multi && e.type === 'pointerup') {
-      addPointAt(state.tap);
+      handleTap(state.tap);
     }
     if (state.pointers.size < 2) state.pinch = null;
     if (state.pointers.size === 1) {
-      // Leftover finger after a pinch: do not treat it as a tap later.
       const [only] = [...state.pointers.values()];
       state.tap = { x: only.x, y: only.y, moved: true, multi: true };
     }
@@ -381,7 +467,6 @@
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', resetTouch);
 
-  // Keep the layout right if the phone rotates or the window resizes.
   window.addEventListener('resize', () => {
     if (state.img) fitPhoto();
   });

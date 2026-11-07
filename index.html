@@ -19,7 +19,7 @@
 <body>
   <header class="top">
     <h1>Spore Measure</h1>
-    <p class="sub">Calibrated from your microscope ruler. Measure 10 to 20 spores.</p>
+    <p class="sub">Take a photo. Tap two ruler ticks. The app finds and measures the spores.</p>
   </header>
 
   <main>
@@ -44,28 +44,40 @@
         </select>
       </label>
       <label class="field">
-        <span>µm per ruler unit</span>
-        <input id="umPerUnit" type="number" inputmode="decimal" min="0.01" step="0.01" value="2.5">
-      </label>
-      <label class="field">
-        <span>Ruler units between your two calibration taps</span>
-        <input id="unitsSpan" type="number" inputmode="decimal" min="1" step="1" value="10">
+        <span>µm per tick</span>
+        <input id="umPerTick" type="number" inputmode="decimal" min="0.01" step="0.01" value="2.5">
       </label>
     </section>
 
     <section class="card">
-      <h2>3. Mark points</h2>
+      <h2>3. Ruler</h2>
       <p id="step" class="step" aria-live="polite">Take or choose a photo to begin.</p>
       <div class="stage">
         <canvas id="view" aria-label="Photo. Tap to place points. Pinch to zoom, drag to move."></canvas>
         <p class="empty hidden" id="empty">No photo yet</p>
       </div>
-      <p class="hint">Pinch to zoom and drag to move. Tap to place a point. Tap the ruler first, then each spore: its length, then its width.</p>
+      <p class="hint">Pinch to zoom and drag to move. Tap two ruler ticks, then enter how many ticks lie between them.</p>
+      <label class="field">
+        <span>Ticks between your two taps</span>
+        <input id="ticks" type="number" inputmode="decimal" min="1" step="1" value="10">
+      </label>
       <div class="row buttons">
-        <button class="btn" id="undo" type="button">Undo</button>
+        <button class="btn" id="undo" type="button">Undo ruler taps</button>
         <button class="btn" id="fit" type="button">Fit photo</button>
-        <button class="btn danger" id="clear" type="button">Clear points</button>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>4. Measure</h2>
+      <div class="row buttons">
+        <button class="btn primary" id="measure" type="button">Measure spores</button>
+      </div>
+      <div class="row buttons">
+        <button class="btn" id="tipMode" type="button" aria-pressed="false">Add apical tip: off</button>
+        <button class="btn" id="clearTips" type="button">Clear tips</button>
+      </div>
+      <p class="hint">If a spore's pointed tip or nipple is missing from its outline, turn on Add apical tip, then tap the tip on the photo. The outline will redraw.</p>
+      <p class="hint" id="measureStatus"></p>
     </section>
 
     <section class="card results" aria-live="polite">
@@ -80,6 +92,7 @@
         <dt>Average Q (length ÷ width)</dt>
         <dd id="avgQ">–</dd>
       </dl>
+      <p class="hint">Tap a numbered outline on the photo to leave that spore out. Tap it again to put it back.</p>
       <div class="table-wrap" id="spores"></div>
       <div class="row buttons">
         <button class="btn" id="copy" type="button">Copy table</button>
@@ -90,9 +103,9 @@
     <section class="card tips">
       <h2>Tips</h2>
       <ul>
-        <li>Each measurement is in micrometres (µm). Q is the length divided by the width for each spore, and the average Q is the mean of those ratios.</li>
-        <li>Tap the two edges of the spore across its longest axis for length, and across its widest part for width.</li>
-        <li>Calibration uses the two ruler taps and the number of units between them, so tap two marks you can count.</li>
+        <li>Put the ruler in the same photo as the spores, at the same magnification.</li>
+        <li>Spores cut off by the photo edge are skipped.</li>
+        <li>Items marked "irregular outline" may be two spores stuck together, or debris. Check them on the photo.</li>
       </ul>
     </section>
   </main>
