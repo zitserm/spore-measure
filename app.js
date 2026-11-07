@@ -22,6 +22,7 @@
     tipMode: false,
     fixMode: false,
     fixing: null,   // { anchor, pts } while the user is fixing one spore
+    lastFix: null,  // the four points of the last saved fix, shown until the next fix starts
     fixes: [],      // { anchor, lengthPx, widthPx } in photo pixels, kept across re-measures
     view: { s: 1, x: 0, y: 0 },
     fitScale: 1,
@@ -180,10 +181,13 @@
   }
 
   // Points placed so far while fixing a spore.
+  // White while a fix is in progress, cyan for the last saved fix. Only shown in fix mode.
   function drawFixing() {
-    if (!state.fixing) return;
-    const pts = state.fixing.pts.map(toScreen);
-    ctx.strokeStyle = '#fff';
+    if (!state.fixMode) return;
+    const pts = (state.fixing ? state.fixing.pts : state.lastFix ? state.lastFix.pts : []).map(toScreen);
+    if (!pts.length) return;
+    const color = state.fixing ? '#fff' : '#38d4ff';
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     for (let i = 0; i + 1 < pts.length; i += 2) {
       ctx.beginPath();
@@ -191,7 +195,7 @@
       ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
       ctx.stroke();
     }
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = color;
     for (const p of pts) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
@@ -509,6 +513,7 @@
         // Pick the spore first; the next four taps measure it.
         if (state.spores.some((s) => insideContour(s.contour, img.x, img.y))) {
           state.fixing = { anchor: img, pts: [] };
+          state.lastFix = null;
         }
         update();
         return;
@@ -524,7 +529,12 @@
         state.fixes = state.fixes.filter((f) => !(target && insideContour(target.contour, f.anchor.x, f.anchor.y)));
         state.fixes.push({ anchor, lengthPx: Math.max(first, second), widthPx: Math.min(first, second) });
         state.fixing = null;
+        state.lastFix = { pts: pts.slice() };
         applyFixes();
+        const done = state.spores.find((s) => target && s.id === target.id);
+        if (done && done.manual) {
+          $('measureStatus').textContent = `Spore ${done.id} set to ${done.length.toFixed(1)} × ${done.width.toFixed(1)} µm.`;
+        }
       }
       update();
       return;
