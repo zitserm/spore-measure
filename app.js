@@ -484,16 +484,32 @@
       g.stroke();
     }
 
-    out.toBlob((blob) => {
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    const name = `spores-${stamp}.png`;
+    out.toBlob(async (blob) => {
       if (!blob) {
         $('copyStatus').textContent = 'Could not save the image.';
         return;
       }
+      const file = new File([blob], name, { type: 'image/png' });
+      // On iPhone this opens the share sheet, where "Save Image" puts the picture in Photos.
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: name });
+          $('copyStatus').textContent = 'Image shared.';
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            $('copyStatus').textContent = '';
+            return;
+          }
+          // Otherwise fall through to a plain download.
+        }
+      }
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
       link.href = url;
-      link.download = `spores-${stamp}.png`;
+      link.download = name;
       document.body.appendChild(link);
       link.click();
       link.remove();
