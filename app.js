@@ -469,6 +469,21 @@
       g.fillText(text, x0, y0 - font * 0.8);
     }
 
+    // Draw the length and width points of each fix, so the manual sizes can be checked.
+    for (const fix of state.fixes) {
+      const spore = state.spores.find((s) => insideContour(s.contour, fix.anchor.x, fix.anchor.y));
+      if (!spore || state.excluded.has(spore.id) || !fix.pts) continue;
+      const [p0, p1, p2, p3] = fix.pts;
+      g.strokeStyle = '#38d4ff';
+      g.lineWidth = line;
+      g.beginPath();
+      g.moveTo(p0.x, p0.y);
+      g.lineTo(p1.x, p1.y);
+      g.moveTo(p2.x, p2.y);
+      g.lineTo(p3.x, p3.y);
+      g.stroke();
+    }
+
     out.toBlob((blob) => {
       if (!blob) {
         $('copyStatus').textContent = 'Could not save the image.';
@@ -535,7 +550,7 @@
         const second = dist(c, d);
         const target = state.spores.find((s) => insideContour(s.contour, anchor.x, anchor.y));
         state.fixes = state.fixes.filter((f) => !(target && insideContour(target.contour, f.anchor.x, f.anchor.y)));
-        state.fixes.push({ anchor, lengthPx: Math.max(first, second), widthPx: Math.min(first, second) });
+        state.fixes.push({ anchor, pts: pts.slice(), lengthPx: Math.max(first, second), widthPx: Math.min(first, second) });
         state.fixing = null;
         state.lastFix = { pts: pts.slice() };
         applyFixes();
