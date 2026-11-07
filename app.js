@@ -20,7 +20,6 @@
     excluded: new Set(),
     fixMode: false,
     fixing: null,   // { anchor, pts } while the user is fixing one spore
-    lastFix: null,  // the four points of the last saved fix, shown until the next fix starts
     fixes: [],      // { anchor, lengthPx, widthPx } in photo pixels, kept across re-measures
     view: { s: 1, x: 0, y: 0 },
     fitScale: 1,
@@ -179,12 +178,10 @@
   }
 
   // Points placed so far while fixing a spore.
-  // White while a fix is in progress, cyan for the last saved fix. Only shown in fix mode.
-  function drawFixing() {
-    if (!state.fixMode) return;
-    const pts = (state.fixing ? state.fixing.pts : state.lastFix ? state.lastFix.pts : []).map(toScreen);
-    if (!pts.length) return;
-    const color = state.fixing ? '#fff' : '#38d4ff';
+  // The length and width points of every saved fix (cyan), and of the fix in progress (white).
+  // Only shown in fix mode.
+  function drawPoints(list, color) {
+    const pts = list.map(toScreen);
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     for (let i = 0; i + 1 < pts.length; i += 2) {
@@ -199,6 +196,14 @@
       ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  function drawFixing() {
+    if (!state.fixMode) return;
+    for (const fix of state.fixes) {
+      if (fix.pts) drawPoints(fix.pts, '#38d4ff');
+    }
+    if (state.fixing) drawPoints(state.fixing.pts, '#fff');
   }
 
   function draw() {
@@ -576,7 +581,6 @@
         const pick = pickSpore(img);
         if (pick) {
           state.fixing = { anchor: pick.anchor, pts: [] };
-          state.lastFix = null;
           $('measureStatus').textContent = `Fixing spore ${pick.spore.id}.`;
         } else {
           $('measureStatus').textContent = 'No spore there. Tap inside a numbered outline.';
@@ -595,7 +599,6 @@
         state.fixes = state.fixes.filter((f) => !(target && insideContour(target.contour, f.anchor.x, f.anchor.y)));
         state.fixes.push({ anchor, pts: pts.slice(), lengthPx: Math.max(first, second), widthPx: Math.min(first, second) });
         state.fixing = null;
-        state.lastFix = { pts: pts.slice() };
         applyFixes();
         const done = state.spores.find((s) => target && s.id === target.id);
         if (done && done.manual) {
