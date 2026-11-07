@@ -114,6 +114,31 @@ canvas {
   -webkit-user-select: none;
 }
 
+/* Zoom buttons sit on top of the photo, so they work even when pinching doesn't. */
+.zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zoom button {
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.zoom button:active {
+  background: rgba(0, 0, 0, 0.85);
+}
+
 .empty {
   position: absolute;
   inset: 0;
