@@ -20,6 +20,9 @@
     excluded: new Set(),
     tips: [],
     tipMode: false,
+    fixMode: false,
+    fixing: null,   // { anchor, pts } while the user is fixing one spore
+    fixes: [],      // { anchor, lengthPx, widthPx } in photo pixels, kept across re-measures
     view: { s: 1, x: 0, y: 0 },
     fitScale: 1,
     pointers: new Map(),
@@ -53,6 +56,36 @@
   function ticksBetween() {
     const v = parseFloat(ticksInput.value);
     return v > 0 ? v : null;
+  }
+
+  // µm per full-resolution pixel, from the ruler taps and tick count (same as the server).
+  function umPerFullPx() {
+    const ticks = ticksBetween();
+    const um = micronsPerTick();
+    if (!ticks || !um || state.ruler.length < 2) return null;
+    const rulerPx = dist(state.ruler[0], state.ruler[1]);
+    return rulerPx > 0 ? (ticks * um) / rulerPx : null;
+  }
+
+  // Put the user's manual sizes onto the measured spores. A fix is matched to the spore
+  // that contains its tap, so it survives re-measuring. Spores without a fix get their
+  // automatic values back.
+  function applyFixes() {
+    const k = umPerFullPx();
+    for (const spore of state.spores) {
+      const fix = state.fixes.find((f) => insideContour(spore.contour, f.anchor.x, f.anchor.y));
+      if (fix && k) {
+        spore.length = fix.lengthPx * k;
+        spore.width = fix.widthPx * k;
+        spore.q = spore.width > 0 ? spore.length / spore.width : null;
+        spore.manual = true;
+      } else if (spore.auto) {
+        spore.length = spore.auto.length;
+        spore.width = spore.auto.width;
+        spore.q = spore.auto.q;
+        spore.manual = false;
+      }
+    }
   }
 
   function includedSpores() {
@@ -146,6 +179,26 @@
     });
   }
 
+  // Points placed so far while fixing a spore.
+  function drawFixing() {
+    if (!state.fixing) return;
+    const pts = state.fixing.pts.map(toScreen);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    for (let i = 0; i + 1 < pts.length; i += 2) {
+      ctx.beginPath();
+      ctx.moveTo(pts[i].x, pts[i].y);
+      ctx.lineTo(pts[i + 1].x, pts[i + 1].y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#fff';
+    for (const p of pts) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   function draw() {
     const { w, h } = sizeCanvas();
     ctx.fillStyle = '#111';
@@ -157,6 +210,7 @@
     ctx.drawImage(state.img, v.x, v.y, state.img.width * v.s, state.img.height * v.s);
     drawRuler();
     drawSpores();
+    drawFixing();
     // Mark each apical tip the user added, so its position can be checked.
     for (const tip of state.tips) {
       const p = toScreen(tip);
@@ -177,6 +231,15 @@
     }
     if (!ticksBetween()) return 'Enter how many ticks lie between your two taps.';
     if (!state.spores.length) return 'Step 4: tap Measure spores.';
+    if (state.fixMode) {
+      if (!state.fixing) return 'Fix mode: tap inside the spore you want to re-measure.';
+      return [
+        'Tap one end of the length.',
+        'Tap the other end of the length.',
+        'Tap one side of the width.',
+        'Tap the other side of the width.',
+      ][state.fixing.pts.length];
+    }
     if (state.tipMode) return 'Tap the tip of a spore to add it to that spore\'s outline.';
     return 'Tap a numbered outline to leave that spore out.';
   }
@@ -204,7 +267,7 @@
         s.length.toFixed(1),
         s.width.toFixed(1),
         s.q === null ? '–' : s.q.toFixed(2),
-        s.flag || '',
+        s.manual ? 'manual size' : (s.flag || ''),
       ]) {
         row.insertCell().textContent = text;
       }
@@ -240,6 +303,8 @@
     $('measure').textContent = state.busy ? 'Measuring…' : 'Measure spores';
     $('tipMode').disabled = state.busy || !state.spores.length;
     $('clearTips').disabled = state.busy || !state.tips.length;
+    $('fixMode').disabled = state.busy || !state.spores.length;
+    $('clearFixes').disabled = state.busy || !state.fixes.length;
     updateResults();
   }
 
@@ -257,6 +322,11 @@
       state.spores = [];
       state.excluded = new Set();
       state.tips = [];
+      state.fixes = [];
+      state.fixing = null;
+      state.fixMode = false;
+      $('fixMode').textContent = "Fix a spore's size: off";
+      $('fixMode').setAttribute('aria-pressed', 'false');
       $('measureStatus').textContent = '';
       fitPhoto();
       update();
@@ -307,6 +377,8 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
       state.spores = data.spores;
+      state.spores.forEach((s) => { s.auto = { length: s.length, width: s.width, q: s.q }; });
+      applyFixes();
       const ignored = state.tips.length - (data.tips_used ? data.tips_used.length : 0);
       let text = data.spores.length
         ? `Found ${data.spores.length} spores.`
@@ -324,9 +396,33 @@
   $('measure').addEventListener('click', measure);
 
   $('tipMode').addEventListener('click', () => {
+    state.fixMode = false;
+    state.fixing = null;
+    $('fixMode').textContent = "Fix a spore's size: off";
+    $('fixMode').setAttribute('aria-pressed', 'false');
     state.tipMode = !state.tipMode;
     $('tipMode').textContent = `Add apical tip: ${state.tipMode ? 'on' : 'off'}`;
     $('tipMode').setAttribute('aria-pressed', String(state.tipMode));
+    update();
+  });
+
+  $('fixMode').addEventListener('click', () => {
+    state.fixMode = !state.fixMode;
+    state.fixing = null;
+    if (state.fixMode) {
+      state.tipMode = false;
+      $('tipMode').textContent = 'Add apical tip: off';
+      $('tipMode').setAttribute('aria-pressed', 'false');
+    }
+    $('fixMode').textContent = `Fix a spore's size: ${state.fixMode ? 'on' : 'off'}`;
+    $('fixMode').setAttribute('aria-pressed', String(state.fixMode));
+    update();
+  });
+
+  $('clearFixes').addEventListener('click', () => {
+    state.fixes = [];
+    state.fixing = null;
+    applyFixes();
     update();
   });
 
@@ -382,6 +478,31 @@
     if (!state.img || state.busy) return;
     const v = state.view;
     const img = { x: (screenPos.x - v.x) / v.s, y: (screenPos.y - v.y) / v.s };
+    if (state.spores.length && state.fixMode) {
+      if (!state.fixing) {
+        // Pick the spore first; the next four taps measure it.
+        if (state.spores.some((s) => insideContour(s.contour, img.x, img.y))) {
+          state.fixing = { anchor: img, pts: [] };
+        }
+        update();
+        return;
+      }
+      state.fixing.pts.push(img);
+      if (state.fixing.pts.length === 4) {
+        const { anchor, pts } = state.fixing;
+        const [a, b, c, d] = pts;
+        // The longer pair is the length, the shorter pair is the width.
+        const first = dist(a, b);
+        const second = dist(c, d);
+        const target = state.spores.find((s) => insideContour(s.contour, anchor.x, anchor.y));
+        state.fixes = state.fixes.filter((f) => !(target && insideContour(target.contour, f.anchor.x, f.anchor.y)));
+        state.fixes.push({ anchor, lengthPx: Math.max(first, second), widthPx: Math.min(first, second) });
+        state.fixing = null;
+        applyFixes();
+      }
+      update();
+      return;
+    }
     if (state.spores.length && state.tipMode) {
       state.tips.push(img);
       measure();
