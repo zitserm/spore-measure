@@ -114,6 +114,37 @@ canvas {
   -webkit-user-select: none;
 }
 
+/* Zoom buttons for a mouse or trackpad. Hidden on touch screens, where pinching works. */
+.zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zoom button {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.zoom button:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+@media (pointer: coarse) {
+  .zoom {
+    display: none;
+  }
+}
+
 /* Full-screen picture to press and hold, so iPhone can save it to Photos. */
 .preview {
   position: fixed;

@@ -500,6 +500,22 @@
     $('previewImg').removeAttribute('src');
   });
 
+  // Zoom in or out around the middle of the photo view, so the spot you're looking at stays put.
+  function zoomBy(factor) {
+    if (!state.img) return;
+    const v = state.view;
+    const cx = canvas.clientWidth / 2;
+    const cy = canvas.clientHeight / 2;
+    const s = clamp(v.s * factor, state.fitScale, state.fitScale * 10);
+    const ax = (cx - v.x) / v.s;
+    const ay = (cy - v.y) / v.s;
+    state.view = { s, x: cx - ax * s, y: cy - ay * s };
+    draw();
+  }
+
+  $('zoomIn').addEventListener('click', () => zoomBy(1.5));
+  $('zoomOut').addEventListener('click', () => zoomBy(1 / 1.5));
+
   // ---------- touch: tap to place or toggle, drag and pinch to move/zoom ----------
 
   function resetTouch() {
