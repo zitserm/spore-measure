@@ -543,6 +543,29 @@
   }
 
   // A tap either toggles a spore outline (after measuring) or places a ruler tap.
+  // The spore under a tap, or the nearest one if the tap is just outside its outline.
+  // Returns the spore and a point inside it (its centre), or null.
+  function pickSpore(img) {
+    let best = state.spores.find((s) => insideContour(s.contour, img.x, img.y)) || null;
+    if (!best) {
+      const tolerance = 0.04 * Math.max(state.img.width, state.img.height);
+      let bestDist = tolerance;
+      for (const s of state.spores) {
+        for (const [x, y] of s.contour) {
+          const d = Math.hypot(x - img.x, y - img.y);
+          if (d < bestDist) {
+            bestDist = d;
+            best = s;
+          }
+        }
+      }
+    }
+    if (!best) return null;
+    const xs = best.contour.map((p) => p[0]);
+    const ys = best.contour.map((p) => p[1]);
+    return { spore: best, anchor: { x: mean(xs), y: mean(ys) } };
+  }
+
   function handleTap(screenPos) {
     if (!state.img || state.busy) return;
     const v = state.view;
@@ -550,9 +573,13 @@
     if (state.spores.length && state.fixMode) {
       if (!state.fixing) {
         // Pick the spore first; the next four taps measure it.
-        if (state.spores.some((s) => insideContour(s.contour, img.x, img.y))) {
-          state.fixing = { anchor: img, pts: [] };
+        const pick = pickSpore(img);
+        if (pick) {
+          state.fixing = { anchor: pick.anchor, pts: [] };
           state.lastFix = null;
+          $('measureStatus').textContent = `Fixing spore ${pick.spore.id}.`;
+        } else {
+          $('measureStatus').textContent = 'No spore there. Tap inside a numbered outline.';
         }
         update();
         return;
