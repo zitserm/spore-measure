@@ -136,15 +136,13 @@ def _measure_region(region_mask, min_area_px):
     return length_px, width_px, solidity, touches_edge, contour
 
 
-def measure_spores(bgr, ruler_px, ticks, um_per_tick, tips=()):
+def measure_spores(bgr, ruler_px, ticks, um_per_tick):
     """Detect and measure spores.
 
     bgr: the photo (BGR, full resolution).
     ruler_px: ((x1, y1), (x2, y2)) of the two ruler taps, in full-resolution pixels.
     ticks: number of ruler ticks between those two taps.
     um_per_tick: micrometres per tick at this magnification.
-    tips: optional (x, y) points, full-resolution pixels, marking an apical tip the
-          automatic outline missed. Each tip joins the nearest spore's outline.
 
     Returns dict with 'um_per_px' and 'spores'. Each spore: id, length, width, q,
     flag, contour (full-resolution points).
@@ -168,9 +166,8 @@ def measure_spores(bgr, ruler_px, ticks, um_per_tick, tips=()):
 
     markers = _split_touching(mask)
     spores = []
-    tips_used = []
     if markers is None:
-        return {"um_per_px": um_per_full_px, "spores": spores, "tips_used": tips_used}
+        return {"um_per_px": um_per_full_px, "spores": spores}
 
     labels = [int(l) for l in np.unique(markers) if l >= 2]
 
@@ -188,34 +185,11 @@ def measure_spores(bgr, ruler_px, ticks, um_per_tick, tips=()):
         if region.any():
             regions.append(region)
 
-    # Remember each spore's centre before any tips change its outline, so numbering stays
-    # stable when a tip is added.
+    # Remember each spore's centre, so numbering is stable.
     centres = []
     for region in regions:
         m = cv2.moments(region, binaryImage=True)
         centres.append((m["m01"] / m["m00"], m["m10"] / m["m00"]) if m["m00"] else (0.0, 0.0))
-
-    # Each tip joins the spore whose outline is nearest to it.
-    for tx, ty in tips:
-        tw, th = tx * scale, ty * scale
-        best, best_d, best_pt = None, float("inf"), None
-        for region in regions:
-            cs, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-            if not cs:
-                continue
-            outline = max(cs, key=cv2.contourArea).reshape(-1, 2).astype(float)
-            dists = np.hypot(outline[:, 0] - tw, outline[:, 1] - th)
-            i = int(np.argmin(dists))
-            if dists[i] < best_d:
-                best, best_d, best_pt = region, dists[i], outline[i]
-        # A tip must sit close to a spore. A far tap would stretch that spore's outline.
-        if best is not None and best_d <= 0.15 * max(work.shape[:2]):
-            # Join the tip to the nearest outline point with a short thick line, so the
-            # tip counts as part of the spore for its length and width.
-            p0 = (int(round(best_pt[0])), int(round(best_pt[1])))
-            cv2.line(best, p0, (int(round(tw)), int(round(th))), 255, thickness=5)
-            cv2.circle(best, (int(round(tw)), int(round(th))), 3, 255, -1)
-            tips_used.append([tx, ty])
 
     wall = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * wall_px + 1, 2 * wall_px + 1))
     measured = []
@@ -245,4 +219,4 @@ def measure_spores(bgr, ruler_px, ticks, um_per_tick, tips=()):
     spores = [spore for _, spore in measured]
     for i, s in enumerate(spores, 1):
         s["id"] = i
-    return {"um_per_px": um_per_full_px, "spores": spores, "tips_used": tips_used}
+    return {"um_per_px": um_per_full_px, "spores": spores}

@@ -18,8 +18,6 @@
     ruler: [],
     spores: [],
     excluded: new Set(),
-    tips: [],
-    tipMode: false,
     fixMode: false,
     fixing: null,   // { anchor, pts } while the user is fixing one spore
     lastFix: null,  // the four points of the last saved fix, shown until the next fix starts
@@ -215,14 +213,6 @@
     drawRuler();
     drawSpores();
     drawFixing();
-    // Mark each apical tip the user added, so its position can be checked.
-    for (const tip of state.tips) {
-      const p = toScreen(tip);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff3b30';
-      ctx.fill();
-    }
   }
 
   function stepText() {
@@ -244,7 +234,6 @@
         'Tap the other side of the width.',
       ][state.fixing.pts.length];
     }
-    if (state.tipMode) return 'Tap the tip of a spore to add it to that spore\'s outline.';
     return 'Tap a numbered outline to leave that spore out.';
   }
 
@@ -305,8 +294,6 @@
     $('undo').disabled = state.ruler.length === 0 || state.busy;
     $('measure').disabled = state.busy || !state.img || state.ruler.length < 2 || !ticksBetween() || !micronsPerTick();
     $('measure').textContent = state.busy ? 'Measuring…' : 'Measure spores';
-    $('tipMode').disabled = state.busy || !state.spores.length;
-    $('clearTips').disabled = state.busy || !state.tips.length;
     $('fixMode').disabled = state.busy || !state.spores.length;
     $('save').disabled = state.busy || !state.spores.length;
     $('clearFixes').disabled = state.busy || !state.fixes.length;
@@ -327,7 +314,6 @@
       state.ruler = [];
       state.spores = [];
       state.excluded = new Set();
-      state.tips = [];
       state.fixes = [];
       state.fixing = null;
       state.fixMode = false;
@@ -377,7 +363,6 @@
     form.append('ruler', JSON.stringify(state.ruler.map((p) => [p.x, p.y])));
     form.append('ticks', String(ticksBetween()));
     form.append('um_per_tick', String(micronsPerTick()));
-    form.append('tips', JSON.stringify(state.tips.map((p) => [p.x, p.y])));
     try {
       const res = await fetch('/measure', { method: 'POST', body: form });
       const data = await res.json();
@@ -385,12 +370,9 @@
       state.spores = data.spores;
       state.spores.forEach((s) => { s.auto = { length: s.length, width: s.width, q: s.q }; });
       applyFixes();
-      const ignored = state.tips.length - (data.tips_used ? data.tips_used.length : 0);
-      let text = data.spores.length
+      $('measureStatus').textContent = data.spores.length
         ? `Found ${data.spores.length} spores.`
         : 'No spores found. Try a sharper photo, or check the ruler taps.';
-      if (ignored > 0) text += ` ${ignored} tip${ignored === 1 ? ' was' : 's were'} too far from a spore and ignored. Clear tips and tap closer.`;
-      $('measureStatus').textContent = text;
     } catch (err) {
       $('measureStatus').textContent = `Could not measure: ${err.message}. Is the Mac server running?`;
     } finally {
@@ -401,25 +383,9 @@
 
   $('measure').addEventListener('click', measure);
 
-  $('tipMode').addEventListener('click', () => {
-    state.fixMode = false;
-    state.fixing = null;
-    $('fixMode').textContent = "Fix a spore's size: off";
-    $('fixMode').setAttribute('aria-pressed', 'false');
-    state.tipMode = !state.tipMode;
-    $('tipMode').textContent = `Add apical tip: ${state.tipMode ? 'on' : 'off'}`;
-    $('tipMode').setAttribute('aria-pressed', String(state.tipMode));
-    update();
-  });
-
   $('fixMode').addEventListener('click', () => {
     state.fixMode = !state.fixMode;
     state.fixing = null;
-    if (state.fixMode) {
-      state.tipMode = false;
-      $('tipMode').textContent = 'Add apical tip: off';
-      $('tipMode').setAttribute('aria-pressed', 'false');
-    }
     $('fixMode').textContent = `Fix a spore's size: ${state.fixMode ? 'on' : 'off'}`;
     $('fixMode').setAttribute('aria-pressed', String(state.fixMode));
     update();
@@ -438,12 +404,6 @@
     state.fixing = null;
     applyFixes();
     update();
-  });
-
-  $('clearTips').addEventListener('click', () => {
-    state.tips = [];
-    if (state.spores.length) measure();
-    else update();
   });
 
   $('copy').addEventListener('click', async () => {
@@ -585,11 +545,6 @@
         }
       }
       update();
-      return;
-    }
-    if (state.spores.length && state.tipMode) {
-      state.tips.push(img);
-      measure();
       return;
     }
     if (state.spores.length) {

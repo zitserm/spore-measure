@@ -30,7 +30,6 @@ def measure():
         ticks = float(request.form["ticks"])
         um_per_tick = float(request.form["um_per_tick"])
         (x1, y1), (x2, y2) = ruler
-        tips = [(float(x), float(y)) for x, y in json.loads(request.form.get("tips", "[]"))]
     except (KeyError, ValueError, TypeError) as exc:
         return jsonify(error=f"Missing or bad calibration values: {exc}"), 400
 
@@ -40,7 +39,7 @@ def measure():
         return jsonify(error="That file is not a photo this app can read."), 400
 
     try:
-        result = measure_spores(bgr, ((x1, y1), (x2, y2)), ticks, um_per_tick, tips)
+        result = measure_spores(bgr, ((x1, y1), (x2, y2)), ticks, um_per_tick)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
 
