@@ -308,6 +308,7 @@
     $('tipMode').disabled = state.busy || !state.spores.length;
     $('clearTips').disabled = state.busy || !state.tips.length;
     $('fixMode').disabled = state.busy || !state.spores.length;
+    $('save').disabled = state.busy || !state.spores.length;
     $('clearFixes').disabled = state.busy || !state.fixes.length;
     $('undoFix').disabled = state.busy || !state.fixing;
     updateResults();
@@ -460,6 +461,70 @@
     } catch (_) {
       $('copyStatus').textContent = 'Could not copy. Select the table and copy it instead.';
     }
+  });
+
+  // Save the full-size photo with the spore outlines and numbers, as a PNG.
+  // Works at the photo's own resolution, whatever the current zoom on screen.
+  $('save').addEventListener('click', () => {
+    if (!state.img || !state.spores.length) return;
+    const W = state.img.width;
+    const H = state.img.height;
+    const out = document.createElement('canvas');
+    out.width = W;
+    out.height = H;
+    const g = out.getContext('2d');
+    g.drawImage(state.img, 0, 0, W, H);
+
+    const line = Math.max(3, W / 500);
+    const font = Math.max(14, W / 60);
+
+    if (state.ruler.length === 2) {
+      const [a, b] = state.ruler;
+      g.strokeStyle = '#ffb020';
+      g.lineWidth = line;
+      g.beginPath();
+      g.moveTo(a.x, a.y);
+      g.lineTo(b.x, b.y);
+      g.stroke();
+    }
+
+    for (const spore of state.spores) {
+      if (state.excluded.has(spore.id)) continue;
+      const path = new Path2D();
+      spore.contour.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+      path.closePath();
+      g.lineWidth = line;
+      g.strokeStyle = spore.flag ? '#ff5a5a' : '#38d46a';
+      g.stroke(path);
+
+      const [x0, y0] = spore.contour[0];
+      const text = String(spore.id);
+      g.font = `600 ${font}px -apple-system, Helvetica, Arial, sans-serif`;
+      const tw = g.measureText(text).width + font * 0.5;
+      g.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      g.fillRect(x0 - tw / 2, y0 - font * 1.4, tw, font * 1.2);
+      g.fillStyle = '#fff';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, x0, y0 - font * 0.8);
+    }
+
+    out.toBlob((blob) => {
+      if (!blob) {
+        $('copyStatus').textContent = 'Could not save the image.';
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      link.href = url;
+      link.download = `spores-${stamp}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      $('copyStatus').textContent = 'Image saved.';
+    }, 'image/png');
   });
 
   // ---------- touch: tap to place or toggle, drag and pinch to move/zoom ----------
