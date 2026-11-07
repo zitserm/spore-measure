@@ -491,36 +491,40 @@
 
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
     const name = `spores-${stamp}.png`;
-    out.toBlob(async (blob) => {
-      if (!blob) {
-        $('copyStatus').textContent = 'Could not save the image.';
-        return;
-      }
-      const file = new File([blob], name, { type: 'image/png' });
-      // On iPhone this opens the share sheet, where "Save Image" puts the picture in Photos.
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], title: name });
-          $('copyStatus').textContent = 'Image shared.';
-          return;
-        } catch (err) {
-          if (err.name === 'AbortError') {
-            $('copyStatus').textContent = '';
-            return;
-          }
-          // Otherwise fall through to a plain download.
-        }
-      }
-      const url = URL.createObjectURL(blob);
+    // iPhone only opens the share sheet from a tap, so the image must be made without any
+    // waiting. toDataURL is synchronous, which keeps the share call inside this tap.
+    const bytes = dataUrlToBytes(out.toDataURL('image/png'));
+    const blob = new Blob([bytes], { type: 'image/png' });
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: name })
+        .then(() => { $('copyStatus').textContent = 'Image shared.'; })
+        .catch((err) => {
+          if (err.name === 'AbortError') $('copyStatus').textContent = '';
+          else downloadBlob(blob, name);
+        });
+      return;
+    }
+    downloadBlob(blob, name);
+
+    function dataUrlToBytes(dataUrl) {
+      const bin = atob(dataUrl.split(',')[1]);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+
+    function downloadBlob(data, fileName) {
+      const url = URL.createObjectURL(data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = name;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
-      $('copyStatus').textContent = 'Image saved.';
-    }, 'image/png');
+      $('copyStatus').textContent = 'Downloaded. Check the Downloads folder.';
+    }
   });
 
   // ---------- touch: tap to place or toggle, drag and pinch to move/zoom ----------
