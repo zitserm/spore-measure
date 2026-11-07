@@ -305,6 +305,7 @@
     $('clearTips').disabled = state.busy || !state.tips.length;
     $('fixMode').disabled = state.busy || !state.spores.length;
     $('clearFixes').disabled = state.busy || !state.fixes.length;
+    $('undoFix').disabled = state.busy || !state.fixing;
     updateResults();
   }
 
@@ -416,6 +417,14 @@
     }
     $('fixMode').textContent = `Fix a spore's size: ${state.fixMode ? 'on' : 'off'}`;
     $('fixMode').setAttribute('aria-pressed', String(state.fixMode));
+    update();
+  });
+
+  // Removes the last point of the spore being fixed. With no points left, it cancels the pick.
+  $('undoFix').addEventListener('click', () => {
+    if (!state.fixing) return;
+    if (state.fixing.pts.length) state.fixing.pts.pop();
+    else state.fixing = null;
     update();
   });
 
