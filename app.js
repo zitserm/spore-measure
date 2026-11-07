@@ -489,42 +489,15 @@
       g.stroke();
     }
 
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-    const name = `spores-${stamp}.png`;
-    // iPhone only opens the share sheet from a tap, so the image must be made without any
-    // waiting. toDataURL is synchronous, which keeps the share call inside this tap.
-    const bytes = dataUrlToBytes(out.toDataURL('image/png'));
-    const blob = new Blob([bytes], { type: 'image/png' });
-    const file = new File([blob], name, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file], title: name })
-        .then(() => { $('copyStatus').textContent = 'Image shared.'; })
-        .catch((err) => {
-          if (err.name === 'AbortError') $('copyStatus').textContent = '';
-          else downloadBlob(blob, name);
-        });
-      return;
-    }
-    downloadBlob(blob, name);
+    // Over plain http on the home network, iPhone cannot share or download to Photos directly.
+    // Show the picture full screen instead; press and hold it to Save Image.
+    $('previewImg').src = out.toDataURL('image/png');
+    $('preview').classList.remove('hidden');
+  });
 
-    function dataUrlToBytes(dataUrl) {
-      const bin = atob(dataUrl.split(',')[1]);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return bytes;
-    }
-
-    function downloadBlob(data, fileName) {
-      const url = URL.createObjectURL(data);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      $('copyStatus').textContent = 'Downloaded. Check the Downloads folder.';
-    }
+  $('previewClose').addEventListener('click', () => {
+    $('preview').classList.add('hidden');
+    $('previewImg').removeAttribute('src');
   });
 
   // ---------- touch: tap to place or toggle, drag and pinch to move/zoom ----------
